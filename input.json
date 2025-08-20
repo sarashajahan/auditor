@@ -1,0 +1,44 @@
+{
+  "report_id": "INV-12430250",
+  "employee": {
+    "user_id": "EMP-AUTO",
+    "role": "employee"
+  },
+  "submission_date": "2025-08-20T06:39:10.173236",
+  "expense_date": "2025-08-01T00:00:00",
+  "line_items": [
+    {
+      "description": "PUMA Boys Youth Universal FO Soccer Cleats 2.5 White High Red NEW Futbol",
+      "quantity": 2.0,
+      "unit_price": 19.25,
+      "tax_rate": 0.08,
+      "category": "unknown",
+      "currency": "USD",
+      "jurisdiction": "US",
+      "vendor": "Scott Howard"
+    },
+    {
+      "description": "Latte Youth Boys Fuerzapura 1500 Jr Soccer Cleats Size 2.5 While Blue MELAT 2.5Y",
+      "quantity": 5.0,
+      "unit_price": 20.89,
+      "tax_rate": 0.08,
+      "category": "unknown",
+      "currency": "USD",
+      "jurisdiction": "US",
+      "vendor": "Scott Howard"
+    }
+  ],
+  "currency": "USD",
+  "jurisdiction": "US",
+  "claimed_total": 154.39,
+  "invoice_metadata": {
+    "vendor_name": "Scott Howard",
+    "vendor_address": "45558 Davis Mountains, East Zacharyville, IA 99376",
+    "invoice_number": "71856892",
+    "invoice_date": "01/08/2025",
+    "currency": "USD",
+    "subtotal": 142.95,
+    "total_tax_amount": 14.29,
+    "total_amount": 154.39
+  }
+}

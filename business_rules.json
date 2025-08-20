@@ -1,0 +1,12 @@
+[
+  {
+    "category": "travel",
+    "max_amount": "5000",
+    "violation_message": "Travel expense exceeds $5000."
+  },
+  {
+    "category": "meals",
+    "max_amount": "100",
+    "violation_message": "Meals expense exceeds $100."
+  }
+]
