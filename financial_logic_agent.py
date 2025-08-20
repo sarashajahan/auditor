@@ -326,6 +326,7 @@ class ExpenseReport:
     claimed_total: Decimal = None
     approval_status: ApprovalStatus = ApprovalStatus.PENDING
     risk_score: float = 0.0
+    invoice_metadata: dict = None
 
 @dataclass
 class ValidationResult:
@@ -475,24 +476,54 @@ Output JSON with keys:
         commodity_type = "unknown"
         confidence_score = 0.3  # Low confidence for fallback
         
-        if any(word in description_lower for word in ['soccer', 'cleats', 'football', 'sports', 'athletic']):
+        if any(word in description_lower for word in [
+            # Sports gear and related terms
+            'soccer', 'football', 'basketball', 'tennis', 'cricket', 'hockey', 'golf',
+            'cleats', 'studs', 'spikes', 'jersey', 'kit', 'shin guard', 'shin-guard', 'shin pads',
+            'sports', 'athletic', 'training gear', 'sportswear', 'gym equipment', 'yoga mat', 'dumbbell'
+        ]):
             commodity_type = "sports_equipment"
-            confidence_score = 0.6
-        elif any(word in description_lower for word in ['shoes', 'boots', 'footwear']):
+            confidence_score = 0.75
+        elif any(word in description_lower for word in [
+            # Footwear
+            'shoes', 'boots', 'footwear', 'sneakers', 'trainers', 'sandals', 'heels', 'loafers'
+        ]):
             commodity_type = "footwear"
-            confidence_score = 0.7
-        elif any(word in description_lower for word in ['lunch', 'dinner', 'meal', 'restaurant', 'food']):
+            confidence_score = 0.8
+        elif any(word in description_lower for word in [
+            # Meals & food
+            'lunch', 'dinner', 'breakfast', 'meal', 'meals', 'restaurant', 'cafe', 'coffee', 'tea', 'snack',
+            'food', 'beverage', 'beverages', 'catering', 'bar', 'pub', 'brewery', 'bistro', 'canteen', 'deli',
+            'takeaway', 'take-away', 'take out', 'take-out', 'delivery', 'groceries', 'grocery'
+        ]):
             commodity_type = "food"
-            confidence_score = 0.8
-        elif any(word in description_lower for word in ['hotel', 'accommodation', 'lodging']):
+            confidence_score = 0.85
+        elif any(word in description_lower for word in [
+            # Accommodation
+            'hotel', 'motel', 'lodging', 'accommodation', 'inn', 'resort', 'hostel', 'guesthouse', 'guest house',
+            'b&b', 'bnb', 'airbnb', 'stay', 'suite', 'room night', 'room-nights', 'night stay', 'night-stay'
+        ]):
             commodity_type = "accommodation"
-            confidence_score = 0.8
-        elif any(word in description_lower for word in ['uber', 'taxi', 'transport', 'ride']):
+            confidence_score = 0.9
+        elif any(word in description_lower for word in [
+            # Transportation
+            'uber', 'taxi', 'cab', 'ride', 'lyft', 'transport', 'transportation', 'tolls', 'parking',
+            'train', 'rail', 'railway', 'bus', 'coach', 'metro', 'subway', 'tram', 'ferry',
+            'flight', 'airfare', 'airline', 'ticket', 'boarding pass', 'boarding-pass', 'check-in',
+            'car rental', 'vehicle rental', 'rent-a-car', 'hire car', 'mileage', 'fuel', 'gas', 'diesel', 'petrol'
+        ]):
             commodity_type = "transportation"
-            confidence_score = 0.7
-        elif any(word in description_lower for word in ['paper', 'pen', 'notebook', 'office', 'supplies']):
+            confidence_score = 0.9
+        elif any(word in description_lower for word in [
+            # Office supplies & stationery
+            'office', 'supplies', 'stationery', 'paper', 'copy paper', 'a4 paper', 'pens', 'pen', 'pencils',
+            'markers', 'highlighter', 'highlighters', 'notebook', 'notebooks', 'notepad', 'pads', 'sticky notes',
+            'post-it', 'post its', 'stapler', 'staples', 'tape', 'glue', 'scissors', 'envelope', 'envelopes',
+            'folder', 'folders', 'binder', 'binders', 'laminating', 'whiteboard', 'eraser', 'clips', 'push pins',
+            'toner', 'ink', 'cartridge', 'cartridges', 'printer', 'printer paper', 'label', 'labels'
+        ]):
             commodity_type = "office_supplies"
-            confidence_score = 0.7
+            confidence_score = 0.9
         
         # Basic tax rate based on jurisdiction and commodity
         recommended_tax_rate = self._get_basic_tax_rate(jurisdiction, commodity_type)
@@ -509,8 +540,12 @@ Output JSON with keys:
     def _get_basic_tax_rate(self, jurisdiction: str, commodity_type: str) -> Decimal:
         """
         Get basic tax rates for common jurisdictions and commodities.
+        Normalizes jurisdictions like "US-NY" -> "US".
         This serves as a fallback when GPT is unavailable.
         """
+        # Normalize jurisdiction (e.g., "US-NY" -> "US")
+        base_jurisdiction = (jurisdiction or "").strip().upper().split("-")[0]
+
         basic_rates = {
             "US": {
                 "sports_equipment": Decimal("0.08"),
@@ -540,8 +575,12 @@ Output JSON with keys:
                 "unknown": Decimal("0.13")
             }
         }
-        
-        return basic_rates.get(jurisdiction, {}).get(commodity_type, Decimal("0.08"))
+
+        rates_for_region = basic_rates.get(base_jurisdiction)
+        if not rates_for_region:
+            # Unknown region: default to US baseline
+            rates_for_region = basic_rates["US"]
+        return rates_for_region.get(commodity_type, rates_for_region["unknown"])
 
     async def test_api_connectivity(self) -> dict:
         """
@@ -795,23 +834,27 @@ async def gpt4_category_and_tax_validate(item: LineItem):
     prompt = f"""
 You are a financial compliance expert and tax specialist.
 
-Given the details below about an expense, please:
+Task: Classify the expense into ONE of these allowed categories exactly:
+- meals, travel, accommodation, office_supplies, unknown
 
-1. Identify the most accurate main category and subcategory for this expense.
-2. Validate if the tax rate and amount comply with relevant tax laws and corporate policies.
-3. Include if the expense categorization and tax treatment are compliant or not.
-4. Provide explanations for any compliance issues.
+Then assess tax compliance at a high level.
+
+Rules:
+- Choose the best fitting category from the list above only. If none fit, use "unknown".
+- Provide a short explanation.
+- Provide a confidence score between 0.0 and 1.0 for the category classification.
 
 Expense description: "{item.description}"
 Amount: {item.total}
 Tax rate: {item.tax_rate}
 Jurisdiction: {item.jurisdiction}
 
-Output JSON with keys:
-- category: string
+Output valid JSON with keys:
+- category: one of ["meals","travel","accommodation","office_supplies","unknown"]
 - subcategory: string or null
 - compliant: boolean
 - explanation: string
+- category_confidence: number between 0 and 1
 """
     loop = asyncio.get_running_loop()
     content = await loop.run_in_executor(None, run_gpt4_call_sync, prompt)
@@ -822,7 +865,96 @@ Output JSON with keys:
             "category": item.category.value,
             "subcategory": None,
             "compliant": True,
-            "explanation": "Failed to parse GPT response; assuming compliance."
+            "explanation": "Failed to parse GPT response; assuming compliance.",
+            "category_confidence": 0.0
+        }
+
+
+# ---------- Low-confidence Fallback Helpers ----------
+
+def infer_category_keywords(description: str, vendor: str = None) -> str:
+    """
+    Heuristic keyword-based category inference. Returns one of the allowed categories
+    ["meals", "travel", "accommodation", "office_supplies", "unknown"].
+    """
+    text = (description or "")
+    vend = vendor or ""
+    s = f"{text} {vend}".lower()
+
+    # accommodation
+    if any(k in s for k in ["hotel", "lodging", "motel", "inn", "resort", "accommodation", "stay"]):
+        return "accommodation"
+
+    # travel
+    if any(k in s for k in [
+        "uber", "ola", "taxi", "cab", "ride", "lyft", "transport", "transportation",
+        "airfare", "flight", "airline", "train", "rail", "bus", "fare", "mileage", "fuel", "gas"
+    ]):
+        return "travel"
+
+    # meals
+    if any(k in s for k in [
+        "restaurant", "lunch", "dinner", "breakfast", "meal", "meals", "cafe", "coffee", "snack", "food",
+        "beverage", "catering"
+    ]):
+        return "meals"
+
+    # office_supplies
+    if any(k in s for k in [
+        "office", "supplies", "paper", "pen", "pencil", "notebook", "notepad", "stapler", "envelope",
+        "folder", "binder", "cartridge", "toner", "ink", "printer", "stationery"
+    ]):
+        return "office_supplies"
+
+    return "unknown"
+
+
+async def gpt4_category_reprompt(item: LineItem):
+    """
+    Second-pass categorization with few-shot examples and stricter constraints.
+    """
+    examples = [
+        {"desc": "Lunch with client at Italian restaurant", "cat": "meals"},
+        {"desc": "Uber ride to client office", "cat": "travel"},
+        {"desc": "2 nights at Marriott Hotel", "cat": "accommodation"},
+        {"desc": "Printer paper and ink cartridges", "cat": "office_supplies"},
+    ]
+
+    shots = "\n".join([f"- \"{e['desc']}\" -> {e['cat']}" for e in examples])
+
+    prompt = f"""
+You are a precise classifier. Map each expense to exactly one category from:
+["meals","travel","accommodation","office_supplies","unknown"].
+If none fits, return "unknown".
+
+Few-shot guidance:
+{shots}
+
+Now classify this item:
+Description: "{item.description}"
+Vendor: "{item.vendor or ''}"
+Jurisdiction: {item.jurisdiction}
+
+Output valid JSON only with keys: category, subcategory, explanation, category_confidence.
+"""
+    loop = asyncio.get_running_loop()
+    content = await loop.run_in_executor(None, run_gpt4_call_sync, prompt)
+    try:
+        data = json.loads(content)
+        # Ensure proper fields
+        cat = (data.get("category") or "unknown").lower()
+        if cat not in {"meals", "travel", "accommodation", "office_supplies", "unknown"}:
+            cat = "unknown"
+        data["category"] = cat
+        if "category_confidence" not in data:
+            data["category_confidence"] = 0.0
+        return data
+    except Exception:
+        return {
+            "category": "unknown",
+            "subcategory": None,
+            "explanation": "Reprompt parse failure",
+            "category_confidence": 0.0,
         }
 
 
@@ -869,8 +1001,24 @@ class FinancialLogicAgent:
                     item.category = ExpenseCategory(cat_str)
                 compliant = gpt_result.get("compliant", True)
                 explanation = gpt_result.get("explanation", "")
+                cat_conf = float(gpt_result.get("category_confidence", 0.0) or 0.0)
                 if not compliant:
                     violations.append(f"GPT flagged compliance issue on '{item.description}': {explanation}")
+
+                # Low-confidence fallback: keyword rules + optional reprompt
+                if cat_conf < 0.7:
+                    inferred = infer_category_keywords(item.description, item.vendor)
+                    if inferred != item.category.value:
+                        warnings.append(
+                            f"Low category confidence ({cat_conf:.2f}) for '{item.description}'. Heuristic -> {inferred}."
+                        )
+                        # Try a reprompt once for final decision
+                        reprompt = await gpt4_category_reprompt(item)
+                        final_cat = (reprompt.get("category") or inferred).lower()
+                        if final_cat in ExpenseCategory._value2member_map_:
+                            item.category = ExpenseCategory(final_cat)
+                        else:
+                            item.category = ExpenseCategory(inferred)
             except Exception as e:
                 warnings.append(f"GPT category/tax validation error on '{item.description}': {str(e)}")
 
@@ -934,6 +1082,59 @@ class FinancialLogicAgent:
 
         if report.claimed_total and abs(total_calc - report.claimed_total) > self.rounding_tolerance:
             violations.append(f"Claimed total {report.claimed_total} mismatches calculated total {total_calc}")
+
+        # Invoice-level mathematical validation (subtotal, tax, total)
+        if report.invoice_metadata:
+            inv = report.invoice_metadata or {}
+            inv_subtotal = inv.get("subtotal")
+            inv_tax = inv.get("total_tax_amount")
+            inv_total = inv.get("total_amount")
+
+            # Compute from line items in report currency
+            computed_subtotal = Decimal("0.0")
+            computed_tax = Decimal("0.0")
+            for item in report.line_items:
+                if item.currency == report.currency:
+                    computed_subtotal += item.subtotal
+                    computed_tax += item.tax_amount
+                else:
+                    rate = await self.converter.get_exchange_rate(item.currency, report.currency, report.expense_date)
+                    if rate:
+                        computed_subtotal += decimal_round(item.subtotal * rate)
+                        computed_tax += decimal_round(item.tax_amount * rate)
+
+            computed_total = decimal_round(computed_subtotal + computed_tax)
+
+            # Compare if values provided
+            if inv_subtotal is not None:
+                try:
+                    inv_subtotal_dec = Decimal(str(inv_subtotal))
+                    if abs(inv_subtotal_dec - decimal_round(computed_subtotal)) > self.rounding_tolerance:
+                        violations.append(
+                            f"Invoice subtotal {inv_subtotal_dec} mismatches computed {decimal_round(computed_subtotal)}"
+                        )
+                except Exception:
+                    warnings.append("Invoice subtotal not a valid number")
+
+            if inv_tax is not None:
+                try:
+                    inv_tax_dec = Decimal(str(inv_tax))
+                    if abs(inv_tax_dec - decimal_round(computed_tax)) > self.rounding_tolerance:
+                        violations.append(
+                            f"Invoice tax {inv_tax_dec} mismatches computed {decimal_round(computed_tax)}"
+                        )
+                except Exception:
+                    warnings.append("Invoice total_tax_amount not a valid number")
+
+            if inv_total is not None:
+                try:
+                    inv_total_dec = Decimal(str(inv_total))
+                    if abs(inv_total_dec - computed_total) > self.rounding_tolerance:
+                        violations.append(
+                            f"Invoice total {inv_total_dec} mismatches computed {computed_total}"
+                        )
+                except Exception:
+                    warnings.append("Invoice total_amount not a valid number")
 
         # Risk score calculation
         risk_score = 0.0
@@ -1022,7 +1223,8 @@ def parse_expense_report(data):
         line_items=line_items,
         currency=data.get("currency", "USD"),
         jurisdiction=data.get("jurisdiction", "US"),
-        claimed_total=claimed_total
+        claimed_total=claimed_total,
+        invoice_metadata=data.get("invoice_metadata")
     )
 
 
