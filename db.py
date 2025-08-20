@@ -14,7 +14,12 @@ def insert_sample_data():
         ("GoodEats", "active", json.dumps(["meals"]), json.dumps(["US"])),
         ("CityTaxi", "active", json.dumps(["travel"]), json.dumps(["US"])),
         ("Scott Howard", "active", json.dumps(["unknown"]), json.dumps(["US"])),
-        ("OfficeMart", "active", json.dumps(["office_supplies"]), json.dumps(["US"]))
+        ("OfficeMart", "active", json.dumps(["office_supplies"]), json.dumps(["US"])),
+        ("Olive Garden", "active", json.dumps(["meals"]), json.dumps(["US-CA"])),
+        ("Yellow Cab", "active", json.dumps(["travel"]), json.dumps(["US"])),
+        ("Midtown Hotel", "active", json.dumps(["accommodation", "travel"]), json.dumps(["US-NY"])),
+        ("Office Depot", "active", json.dumps(["office_supplies"]), json.dumps(["US"])),
+        ("National Rail", "active", json.dumps(["travel"]), json.dumps(["UK"])),
     ]
 
     c.executemany("INSERT OR REPLACE INTO vendors (vendor_name, status, allowed_categories, regions) VALUES (?, ?, ?, ?)", vendors)
@@ -30,9 +35,9 @@ def insert_sample_data():
     approval_thresholds = [
         ("travel", 2000.00),
         ("meals", 150.00),
-        ("office_supplies", 300.00),
+        ("office_supplies", 100000.00),
         ("accommodation", 1000.00),
-        ("unknown", 10.00),
+        ("unknown", 1000.00),
     ]
     c.executemany("INSERT OR REPLACE INTO approval_thresholds (category, max_approval_amount) VALUES (?, ?)", approval_thresholds)
 
